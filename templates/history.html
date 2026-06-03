@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Attendance History</title>
+</head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f6f9;">
+<div style="width:90%;margin:30px auto;">
+<div style="background:white;padding:25px;border-radius:15px;box-shadow:0px 4px 15px rgba(0,0,0,.1);">
+<h1 style="text-align:center;color:#2c3e50;margin-bottom:10px;">Attendance History</h1>
+<p style="text-align:center;color:gray;font-size:16px;">
+Logged in as
+<strong style="color:#3498db;">{{ user.username }}</strong>(<em>{{ user.role }}</em>)
+</p>
+<div style="display:flex;justify-content:center;gap:15px;margin-top:20px;flex-wrap:wrap;">
+<a href="/dashboard" style="text-decoration:none;padding:10px 20px;background:#3498db;color:white;border-radius:8px;font-weight:bold;">
+Dashboard</a>
+<a href="/export/excel" style="text-decoration:none;padding:10px 20px;background:#27ae60;color:white;border-radius:8px;font-weight:bold;">
+Export Excel
+</a>
+<a href="/export/pdf" style="text-decoration:none;padding:10px 20px;background:#9b59b6;color:white;border-radius:8px;font-weight:bold;">
+Export PDF
+</a>
+<a href="/logout" style="text-decoration:none;padding:10px 20px;background:#e74c3c;color:white;border-radius:8px;font-weight:bold;">
+Logout
+</a>
+</div>
+</div>
+<div style="background:white;margin-top:30px;padding:25px;border-radius:15px;box-shadow:0px 4px 15px rgba(0,0,0,.1);">
+<h2 style="text-align:center;margin-bottom:20px;color:#2c3e50;">
+Attendance Records
+</h2>
+<table style="width:100%;border-collapse:collapse;text-align:center;overflow:hidden;border-radius:10px;">
+<tr style="background:#3498db;color:white;">
+{% if user.role == 'admin' %}
+<th style="padding:15px;">Employee
+</th>
+{% endif %}
+<th style="padding:15px;">
+Date
+</th>
+<th style="padding:15px;">
+Check In
+</th>
+<th style="padding:15px;">
+Check Out
+</th>
+<th style="padding:15px;">
+Hours
+</th>
+</tr>
+{% for row in records %}
+<tr style="background:white;">
+{% if user.role == 'admin' %}
+<td style="padding:12px;border-bottom:1px solid #ddd;">
+{{ row.employee }}
+</td>
+{% endif %}
+<td style="padding:12px;border-bottom:1px solid #ddd;">
+{{ row.date }}
+</td>
+<td style="padding:12px;border-bottom:1px solid #ddd;">
+{{ row.checkin }}
+</td>
+<td style="padding:12px;border-bottom:1px solid #ddd;">
+{{ row.checkout }}
+</td>
+<td style="padding:12px;border-bottom:1px solid #ddd;font-weight:bold;color:#27ae60;">
+{{ row.hours }}
+</td>
+</tr>
+{% endfor %}
+</table>
+</div>
+</div>
+</body>
+</html>

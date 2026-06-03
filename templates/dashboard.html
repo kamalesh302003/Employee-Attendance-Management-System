@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="/static/style1.css">
+<title>Attendance Dashboard</title>
+</head>
+<body>
+<div class="box">
+<h2>Attendance Dashboard</h2>
+<p>Logged in as <strong>{{ user.username }}</strong> (<em>{{ user.role }}</em>)</p>
+{% if user.role == 'admin' %}
+<p><a class="button-link" href="/admin">Go to Admin Dashboard</a></p>
+{% endif %}
+<p class="summary">Total days: {{ summary['total'] }} | Completed sessions: {{ summary['completed'] or 0 }}</p>
+<form action="/checkin" method="post">
+<button type="submit" {% if today_record and today_record.checkin %}disabled{% endif %}>Check In</button>
+</form>
+<form action="/checkout" method="post">
+<button type="submit" {% if not today_record or not today_record.checkin %}disabled{% endif %}>Check Out</button>
+</form>
+<div class="actions">
+<a href="/history">View History</a>
+<a href="/export/excel">Export Excel</a>
+<a href="/export/pdf">Export PDF</a>
+<a href="/logout">Logout</a>
+</div>
+</div>
+</body>
+</html>
