@@ -11,46 +11,52 @@ app.mount("/static",StaticFiles(directory="static"),name="static")
 templates=Jinja2Templates(directory="templates")
 SECRET_KEY=os.getenv("JWT_SECRET_KEY","supersecretkey123")
 ACCESS_TOKEN_EXPIRE_SECONDS=3600
-conn=sqlite3.connect(
-    "attendance.db",
-    check_same_thread=False
-)
-conn.row_factory=sqlite3.Row
-cursor=conn.cursor()
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS employees(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT,
-    role TEXT DEFAULT 'employee'
-)
-""")
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS attendance(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_id INTEGER,
-    date TEXT,
-    checkin TEXT,
-    checkout TEXT
-)
-""")
-conn.commit()
-cursor.execute("PRAGMA table_info(employees)")
-columns=[row[1] for row in cursor.fetchall()]
-if "role" not in columns:
-    cursor.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
-    conn.commit()
-cursor.execute("SELECT * FROM employees WHERE role='admin' LIMIT 1")
-if cursor.fetchone() is None:
-    password="302003"
-    salt=secrets.token_bytes(16)
-    digest=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,100_000)
-    admin_hash=base64.urlsafe_b64encode(salt).decode()+"$"+base64.urlsafe_b64encode(digest).decode()
-    cursor.execute(
-        "INSERT OR IGNORE INTO employees(username,password,role) VALUES(?,?,?)",
-        ("Kamalesh Chandrasekaran",admin_hash,"admin"),
-    )
-    conn.commit()
+DB_PATH="attendance.db"
+
+def get_db_connection():
+    conn=sqlite3.connect(DB_PATH,check_same_thread=False)
+    conn.row_factory=sqlite3.Row
+    return conn
+
+def init_db():
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS employees(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT DEFAULT 'employee'
+        )
+        """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS attendance(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER,
+            date TEXT,
+            checkin TEXT,
+            checkout TEXT
+        )
+        """)
+        conn.commit()
+        cursor.execute("PRAGMA table_info(employees)")
+        columns=[row[1] for row in cursor.fetchall()]
+        if "role" not in columns:
+            cursor.execute("ALTER TABLE employees ADD COLUMN role TEXT DEFAULT 'employee'")
+            conn.commit()
+        cursor.execute("SELECT * FROM employees WHERE role='admin' LIMIT 1")
+        if cursor.fetchone() is None:
+            password="302003"
+            salt=secrets.token_bytes(16)
+            digest=hashlib.pbkdf2_hmac("sha256",password.encode("utf-8"),salt,100_000)
+            admin_hash=base64.urlsafe_b64encode(salt).decode()+"$"+base64.urlsafe_b64encode(digest).decode()
+            cursor.execute(
+                "INSERT OR IGNORE INTO employees(username,password,role) VALUES(?,?,?)",
+                ("Kamalesh Chandrasekaran",admin_hash,"admin"),
+            )
+            conn.commit()
+
+init_db()
 
 def hash_password(password:str)->str:
     salt=secrets.token_bytes(16)
@@ -103,10 +109,12 @@ def get_current_user(request:Request):
     return jwt_decode(token)
 
 def get_user_by_username(username:str):
-    cursor.execute("SELECT * FROM employees WHERE username=?", (username,))
-    return cursor.fetchone()
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        cursor.execute("SELECT * FROM employees WHERE username=?", (username,))
+        return cursor.fetchone()
 
-def add_employee(username:str,password:str,role:str="employee"):
+def register_employee(username:str,password:str,role:str="employee"):
     if not username or not password:
         return False,"Username and password are required."
     username=username.strip()
@@ -114,11 +122,13 @@ def add_employee(username:str,password:str,role:str="employee"):
         return False,f"Username '{username}' already exists."
     hashed=hash_password(password)
     try:
-        cursor.execute(
-            "INSERT INTO employees(username,password,role) VALUES(?,?,?)",
-            (username,hashed,role or "employee"),
-        )
-        conn.commit()
+        with get_db_connection() as conn:
+            cursor=conn.cursor()
+            cursor.execute(
+                "INSERT INTO employees(username,password,role) VALUES(?,?,?)",
+                (username,hashed,role or "employee"),
+            )
+            conn.commit()
         return True,f"Added employee '{username}'."
     except sqlite3.IntegrityError:
         return False,f"Username '{username}' already exists."
@@ -134,8 +144,10 @@ def authenticate_user(username:str,password:str):
         return user if verify_password(password,stored) else None
     if password==stored:
         hashed=hash_password(password)
-        cursor.execute("UPDATE employees SET password=? WHERE id=?",(hashed, user["id"]))
-        conn.commit()
+        with get_db_connection() as conn:
+            cursor=conn.cursor()
+            cursor.execute("UPDATE employees SET password=? WHERE id=?",(hashed, user["id"]))
+            conn.commit()
         return get_user_by_username(username)
     return None
 
@@ -218,72 +230,74 @@ def dashboard(request:Request):
     user=get_current_user(request)
     if not user:
         return RedirectResponse("/",status_code=303)
-    if user["role"]=="admin":
-        employees=cursor.execute(
-            "SELECT id,username,role FROM employees ORDER BY username"
-        ).fetchall()
-        attendance_count=cursor.execute(
-            "SELECT COUNT(*) FROM attendance"
-        ).fetchone()[0]
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        if user["role"]=="admin":
+            employees=cursor.execute(
+                "SELECT id,username,role FROM employees ORDER BY username"
+            ).fetchall()
+            attendance_count=cursor.execute(
+                "SELECT COUNT(*) FROM attendance"
+            ).fetchone()[0]
+            summary=cursor.execute(
+                """
+                SELECT COUNT(*) AS total,
+                SUM(CASE WHEN checkout IS NOT NULL THEN 1 ELSE 0 END) AS completed
+                FROM attendance
+                """
+            ).fetchone()
+            recent_rows=cursor.execute(
+                """
+                SELECT a.date,a.checkin,a.checkout,e.username
+                FROM attendance a
+                JOIN employees e
+                ON e.id=a.employee_id
+                ORDER BY a.date DESC
+                LIMIT 10
+                """
+            ).fetchall()
+            recent=[
+                {
+                    "date":row["date"],
+                    "username":row["username"],
+                    "checkin":row["checkin"],
+                    "checkout":row["checkout"],
+                    "hours":compute_duration(
+                        row["checkin"],
+                        row["checkout"]
+                    ),
+                }
+                for row in recent_rows
+            ]
+            return templates.TemplateResponse(
+                "admin_dashboard.html",
+                {
+                    "request":request,
+                    "user":user,
+                    "employees":employees,
+                    "attendance_count":attendance_count,
+                    "summary":summary,
+                    "recent":recent,
+                },
+            )
+        today=date.today().isoformat()
+        record=cursor.execute(
+            """
+            SELECT *
+            FROM attendance
+            WHERE employee_id=? AND date=?
+            """,
+            (user["user_id"],today),
+        ).fetchone()
         summary=cursor.execute(
             """
             SELECT COUNT(*) AS total,
             SUM(CASE WHEN checkout IS NOT NULL THEN 1 ELSE 0 END) AS completed
             FROM attendance
-            """
+            WHERE employee_id=?
+            """,
+            (user["user_id"],),
         ).fetchone()
-        recent_rows=cursor.execute(
-            """
-            SELECT a.date,a.checkin,a.checkout,e.username
-            FROM attendance a
-            JOIN employees e
-            ON e.id=a.employee_id
-            ORDER BY a.date DESC
-            LIMIT 10
-            """
-        ).fetchall()
-        recent=[
-            {
-                "date":row["date"],
-                "username":row["username"],
-                "checkin":row["checkin"],
-                "checkout":row["checkout"],
-                "hours":compute_duration(
-                    row["checkin"],
-                    row["checkout"]
-                ),
-            }
-            for row in recent_rows
-        ]
-        return templates.TemplateResponse(
-            "admin_dashboard.html",
-            {
-                "request":request,
-                "user":user,
-                "employees":employees,
-                "attendance_count":attendance_count,
-                "summary":summary,
-                "recent":recent,
-            },
-        )
-    today=date.today().isoformat()
-    record=cursor.execute(
-        """
-        SELECT *
-        FROM attendance
-        WHERE employee_id=? AND date=?
-        """,
-        (user["user_id"],today),
-    ).fetchone()
-    summary=cursor.execute(
-        """
-        SELECT COUNT(*) AS total,
-        SUM(CASE WHEN checkout IS NOT NULL THEN 1 ELSE 0 END) AS completed
-        FROM attendance
-        WHERE employee_id=?
-        """,
-        (user["user_id"],),
-    ).fetchone()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -302,28 +316,26 @@ def add_employee(
     role:str=Form("employee")
 ):
     user=get_current_user(request)
-    # Allow only admin
     if not user or user["role"]!="admin":
         return {"error":"Access denied"}
-    # Check existing employee
-    existing=cursor.execute(
-        "SELECT * FROM employees WHERE username=?",
-        (username,)
-    ).fetchone()
-    if existing:
-        return {"error":"Username already exists"}
-    # Hash password
-    hashed_password=hash_password(password)
-    # Insert employee
-    cursor.execute(
-        """
-        INSERT INTO employees
-        (username,password,role)
-        VALUES(?,?,?)
-        """,
-        (username, hashed_password,role)
-    )
-    conn.commit()
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        existing=cursor.execute(
+            "SELECT * FROM employees WHERE username=?",
+            (username,)
+        ).fetchone()
+        if existing:
+            return {"error":"Username already exists"}
+        hashed_password=hash_password(password)
+        cursor.execute(
+            """
+            INSERT INTO employees
+            (username,password,role)
+            VALUES(?,?,?)
+            """,
+            (username, hashed_password,role)
+        )
+        conn.commit()
     return {
         "message":"Employee added successfully",
         "username":username,
@@ -344,22 +356,24 @@ def checkin(request:Request):
         return RedirectResponse("/",status_code=303)
     today=date.today().isoformat()
     now=datetime.now().strftime("%H:%M:%S")
-    existing=cursor.execute(
-        "SELECT * FROM attendance WHERE employee_id=? AND date=?",
-        (user["user_id"],today),
-    ).fetchone()
-    if existing:
-        if not existing["checkin"]:
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        existing=cursor.execute(
+            "SELECT * FROM attendance WHERE employee_id=? AND date=?",
+            (user["user_id"],today),
+        ).fetchone()
+        if existing:
+            if not existing["checkin"]:
+                cursor.execute(
+                    "UPDATE attendance SET checkin=? WHERE id=?",
+                    (now,existing["id"]),
+                )
+        else:
             cursor.execute(
-                "UPDATE attendance SET checkin=? WHERE id=?",
-                (now,existing["id"]),
+                "INSERT INTO attendance (employee_id, date, checkin) VALUES (?,?,?)",
+                (user["user_id"],today,now),
             )
-    else:
-        cursor.execute(
-            "INSERT INTO attendance (employee_id, date, checkin) VALUES (?,?,?)",
-            (user["user_id"],today,now),
-        )
-    conn.commit()
+        conn.commit()
     return RedirectResponse("/history",status_code=303)
 
 @app.post("/checkout")
@@ -369,11 +383,13 @@ def checkout(request:Request):
         return RedirectResponse("/",status_code=303)
     today=date.today().isoformat()
     now=datetime.now().strftime("%H:%M:%S")
-    cursor.execute(
-        "UPDATE attendance SET checkout=? WHERE employee_id=? AND date=? AND checkin IS NOT NULL",
-        (now,user["user_id"],today),
-    )
-    conn.commit()
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        cursor.execute(
+            "UPDATE attendance SET checkout=? WHERE employee_id=? AND date=? AND checkin IS NOT NULL",
+            (now,user["user_id"],today),
+        )
+        conn.commit()
     return RedirectResponse("/history",status_code=303)
 
 @app.get("/history",response_class=HTMLResponse)
@@ -381,39 +397,41 @@ def history(request:Request):
     user=get_current_user(request)
     if not user:
         return RedirectResponse("/",status_code=303)
-    if user["role"]=="admin":
-        rows=cursor.execute(
-            """
-            SELECT a.date, a.checkin, a.checkout, e.username
-            FROM attendance a
-            JOIN employees e ON e.id=a.employee_id
-            ORDER BY a.date DESC
-            """
-        ).fetchall()
-        records=[
-            {
-                "employee":row["username"],
-                "date":row["date"],
-                "checkin":row["checkin"],
-                "checkout":row["checkout"],
-                "hours":compute_duration(row["checkin"],row["checkout"]),
-            }
-            for row in rows
-        ]
-    else:
-        rows=cursor.execute(
-            "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
-            (user["user_id"],),
-        ).fetchall()
-        records=[
-            {
-                "date":row["date"],
-                "checkin":row["checkin"],
-                "checkout":row["checkout"],
-                "hours":compute_duration(row["checkin"],row["checkout"]),
-            }
-            for row in rows
-        ]
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        if user["role"]=="admin":
+            rows=cursor.execute(
+                """
+                SELECT a.date, a.checkin, a.checkout, e.username
+                FROM attendance a
+                JOIN employees e ON e.id=a.employee_id
+                ORDER BY a.date DESC
+                """
+            ).fetchall()
+            records=[
+                {
+                    "employee":row["username"],
+                    "date":row["date"],
+                    "checkin":row["checkin"],
+                    "checkout":row["checkout"],
+                    "hours":compute_duration(row["checkin"],row["checkout"]),
+                }
+                for row in rows
+            ]
+        else:
+            rows=cursor.execute(
+                "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
+                (user["user_id"],),
+            ).fetchall()
+            records=[
+                {
+                    "date":row["date"],
+                    "checkin":row["checkin"],
+                    "checkout":row["checkout"],
+                    "hours":compute_duration(row["checkin"],row["checkout"]),
+                }
+                for row in rows
+            ]
     return templates.TemplateResponse(
         "history.html",
         {"request":request,"user":user,"records":records},
@@ -424,39 +442,41 @@ def export_excel(request:Request):
     user=get_current_user(request)
     if not user:
         return RedirectResponse("/",status_code=303)
-    if user["role"]=="admin":
-        rows=cursor.execute(
-            """
-            SELECT a.date,a.checkin,a.checkout,e.username
-            FROM attendance a
-            JOIN employees e ON e.id=a.employee_id
-            ORDER BY a.date DESC
-            """
-        ).fetchall()
-        records=[
-            {
-                "Employee":row["username"],
-                "Date":row["date"],
-                "Check In":row["checkin"],
-                "Check Out":row["checkout"],
-                "Hours":compute_duration(row["checkin"],row["checkout"]),
-            }
-            for row in rows
-        ]
-    else:
-        rows=cursor.execute(
-            "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
-            (user["user_id"],),
-        ).fetchall()
-        records=[
-            {
-                "Date":row["date"],
-                "Check In":row["checkin"],
-                "Check Out":row["checkout"],
-                "Hours":compute_duration(row["checkin"],row["checkout"]),
-            }
-            for row in rows
-        ]
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        if user["role"]=="admin":
+            rows=cursor.execute(
+                """
+                SELECT a.date,a.checkin,a.checkout,e.username
+                FROM attendance a
+                JOIN employees e ON e.id=a.employee_id
+                ORDER BY a.date DESC
+                """
+            ).fetchall()
+            records=[
+                {
+                    "Employee":row["username"],
+                    "Date":row["date"],
+                    "Check In":row["checkin"],
+                    "Check Out":row["checkout"],
+                    "Hours":compute_duration(row["checkin"],row["checkout"]),
+                }
+                for row in rows
+            ]
+        else:
+            rows=cursor.execute(
+                "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
+                (user["user_id"],),
+            ).fetchall()
+            records=[
+                {
+                    "Date":row["date"],
+                    "Check In":row["checkin"],
+                    "Check Out":row["checkout"],
+                    "Hours":compute_duration(row["checkin"],row["checkout"]),
+                }
+                for row in rows
+            ]
     if records:
         headers=list(records[0].keys())
     else:
@@ -478,30 +498,32 @@ def export_pdf(request:Request):
     user=get_current_user(request)
     if not user:
         return RedirectResponse("/",status_code=303)
-    if user["role"]=="admin":
-        rows=cursor.execute(
-            """
-            SELECT a.date,a.checkin,a.checkout,e.username
-            FROM attendance a
-            JOIN employees e ON e.id=a.employee_id
-            ORDER BY a.date DESC
-            """
-        ).fetchall()
-        title="Attendance Report - All Employees"
-        lines=[title,""]+[
-            f"{row['username']} | {row['date']} | {row['checkin'] or '-'} | {row['checkout'] or '-'} | {compute_duration(row['checkin'],row['checkout'])}"
-            for row in rows
-        ]
-    else:
-        rows=cursor.execute(
-            "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
-            (user["user_id"],),
-        ).fetchall()
-        title=f"Attendance Report-{user['username']}"
-        lines=[title,""]+[
-            f"{row['date']} | {row['checkin'] or '-'} | {row['checkout'] or '-'} | {compute_duration(row['checkin'], row['checkout'])}"
-            for row in rows
-        ]
+    with get_db_connection() as conn:
+        cursor=conn.cursor()
+        if user["role"]=="admin":
+            rows=cursor.execute(
+                """
+                SELECT a.date,a.checkin,a.checkout,e.username
+                FROM attendance a
+                JOIN employees e ON e.id=a.employee_id
+                ORDER BY a.date DESC
+                """
+            ).fetchall()
+            title="Attendance Report - All Employees"
+            lines=[title,""]+[
+                f"{row['username']} | {row['date']} | {row['checkin'] or '-'} | {row['checkout'] or '-'} | {compute_duration(row['checkin'],row['checkout'])}"
+                for row in rows
+            ]
+        else:
+            rows=cursor.execute(
+                "SELECT date,checkin,checkout FROM attendance WHERE employee_id=? ORDER BY date DESC",
+                (user["user_id"],),
+            ).fetchall()
+            title=f"Attendance Report-{user['username']}"
+            lines=[title,""]+[
+                f"{row['date']} | {row['checkin'] or '-'} | {row['checkout'] or '-'} | {compute_duration(row['checkin'], row['checkout'])}"
+                for row in rows
+            ]
     pdf_content=build_pdf(lines)
     return StreamingResponse(
         io.BytesIO(pdf_content),
