@@ -1,21 +1,193 @@
 <!DOCTYPE html>
 <html>
 <head>
-<link rel="stylesheet" href="/static/style.css">
-<title>Employee Login</title>
+    <title>Employee Attendance System</title>
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <style>
+
+        *{
+            margin:0;
+            padding:0;
+            box-sizing:border-box;
+            font-family:'Segoe UI',sans-serif;
+        }
+
+        body{
+            height:100vh;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+
+            background:linear-gradient(
+                135deg,
+                #1e3c72,
+                #2a5298
+            );
+        }
+
+        .login-container{
+
+            width:420px;
+
+            background:rgba(255,255,255,0.15);
+
+            backdrop-filter:blur(15px);
+
+            border-radius:20px;
+
+            padding:40px;
+
+            box-shadow:
+            0 8px 32px rgba(0,0,0,0.2);
+
+            color:white;
+
+        }
+
+        .logo{
+            text-align:center;
+            margin-bottom:20px;
+        }
+
+        .logo i{
+            font-size:55px;
+            color:#fff;
+        }
+
+        h2{
+            text-align:center;
+            margin-bottom:10px;
+        }
+
+        .subtitle{
+            text-align:center;
+            color:#e5e5e5;
+            margin-bottom:30px;
+        }
+
+        .input-group{
+            position:relative;
+            margin-bottom:20px;
+        }
+
+        .input-group i{
+            position:absolute;
+            left:15px;
+            top:15px;
+            color:#777;
+        }
+
+        input{
+
+            width:100%;
+            padding:14px 14px 14px 45px;
+
+            border:none;
+            border-radius:10px;
+
+            outline:none;
+
+            font-size:15px;
+        }
+
+        button{
+
+            width:100%;
+            padding:14px;
+
+            border:none;
+            border-radius:10px;
+
+            background:#00c896;
+
+            color:white;
+
+            font-size:16px;
+            font-weight:bold;
+
+            cursor:pointer;
+
+            transition:.3s;
+        }
+
+        button:hover{
+
+            background:#00a67d;
+            transform:translateY(-2px);
+
+        }
+
+        .admin-info{
+
+            margin-top:20px;
+            text-align:center;
+
+            font-size:14px;
+            color:#f1f1f1;
+
+        }
+
+        .admin-info span{
+            font-weight:bold;
+            color:#fff;
+        }
+
+    </style>
 </head>
+
 <body>
-<div class="box">
-<h2>Employee Login</h2>
-{% if error %}
-<p class="error">{{ error }}</p>
-{% endif %}
-<form action="/login" method="post">
-<input type="text" name="username" placeholder="Username" required>
-<input type="password" name="password" placeholder="Password" required>
-<button type="submit">Login</button>
-</form>
-<p class="note">Default admin: <strong>admin</strong> / <strong>admin123</strong></p>
+
+<div class="login-container">
+
+    <div class="logo">
+        <i class="fas fa-user-clock"></i>
+    </div>
+
+    <h2>Employee Attendance System</h2>
+
+    <p class="subtitle">
+        Sign in to continue
+    </p>
+
+    <form action="/login" method="post">
+
+        <div class="input-group">
+            <i class="fas fa-user"></i>
+
+            <input
+                type="text"
+                name="username"
+                placeholder="Username"
+                required>
+        </div>
+
+        <div class="input-group">
+
+            <i class="fas fa-lock"></i>
+
+            <input
+                type="password"
+                name="password"
+                placeholder="Password"
+                required>
+
+        </div>
+
+        <button type="submit">
+            Login
+        </button>
+
+    </form>
+
+    <div class="admin-info">
+        Default Admin:
+        <span>admin / admin123</span>
+    </div>
+
 </div>
+
 </body>
 </html>
