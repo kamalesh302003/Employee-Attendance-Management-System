@@ -204,15 +204,20 @@ def home():
 
 @app.get("/",response_class=HTMLResponse)
 def login_page(request:Request):
-    return templates.TemplateResponse("login.html",{"request":request,"error":None})
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error":None}
+    )
 
 @app.post("/login")
 def login(request:Request,username:str=Form(...),password:str=Form(...)):
     user=authenticate_user(username,password)
     if not user:
         return templates.TemplateResponse(
-            "login.html",
-            {"request":request,"error":"Invalid username or password."},
+            request=request,
+            name="login.html",
+            context={"error":"Invalid username or password."}
         )
     token=create_access_token(user["id"],user["username"],user["role"])
     response=RedirectResponse("/dashboard",status_code=303)
@@ -270,15 +275,15 @@ def dashboard(request:Request):
                 for row in recent_rows
             ]
             return templates.TemplateResponse(
-                "admin_dashboard.html",
-                {
-                    "request":request,
+                request=request,
+                name="admin_dashboard.html",
+                context={
                     "user":user,
                     "employees":employees,
                     "attendance_count":attendance_count,
                     "summary":summary,
                     "recent":recent,
-                },
+                }
             )
         today=date.today().isoformat()
         record=cursor.execute(
@@ -299,13 +304,13 @@ def dashboard(request:Request):
             (user["user_id"],),
         ).fetchone()
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request":request,
+        request=request,
+        name="dashboard.html",
+        context={
             "user":user,
             "today_record":record,
             "summary":summary,
-        },
+        }
     )
 
 @app.post("/admin/add_employees")
@@ -433,8 +438,9 @@ def history(request:Request):
                 for row in rows
             ]
     return templates.TemplateResponse(
-        "history.html",
-        {"request":request,"user":user,"records":records},
+        request=request,
+        name="history.html",
+        context={"user":user,"records":records}
     )
 
 @app.get("/export/excel")
